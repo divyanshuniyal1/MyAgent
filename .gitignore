@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+venv/
+# Database — never commit
+memory.db
+*.db
+*.sqlite
+
+# Misc
+.DS_Store
+.vscode/
