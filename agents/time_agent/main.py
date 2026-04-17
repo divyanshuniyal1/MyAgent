@@ -56,7 +56,7 @@ agent_card = AgentCard(
     capabilities=AgentCapabilities(streaming=False),
     skills=[AgentSkill(id="time", name="Time", description="...", tags=["time"])],
     version="1.0.0",
-)
+) 
 
 handler = DefaultRequestHandler(agent_executor=TimeAgentExecutor(), task_store=InMemoryTaskStore())
 app = A2AFastAPIApplication(agent_card=agent_card, http_handler=handler).build()

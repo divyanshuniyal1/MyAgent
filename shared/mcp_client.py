@@ -11,8 +11,11 @@ MCP_URL = os.getenv("MCP_URL", "http://mcp:9000/mcp/")
 async def call_mcp_tool(tool_name: str, params: dict):
     async with MCPClient(MCP_URL) as client:
         result = await client.call_tool(tool_name, params)
-        if result and hasattr(result[0], "text"):
-            return result[0].text
+        # result is a CallToolResult object, access .content list
+        if result and result.content:
+            first = result.content[0]
+            if hasattr(first, "text"):
+                return first.text
         return str(result)
 
 

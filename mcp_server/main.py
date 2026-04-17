@@ -34,4 +34,4 @@ mcp.tool(name="get_expenses", description="Get all expenses for user")(get_expen
 
 
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http", host="0.0.0.0", port=9000)
+    mcp.run(transport="streamable-http", host="0.0.0.0", port=9000, path="/mcp")

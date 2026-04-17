@@ -1,50 +1,57 @@
 # orchestrator/router.py
-# Uses agno (https://github.com/agno-agi/agno) for agentic orchestration.
-# Each sub-agent is wrapped as an agno Tool that dispatches via A2A protocol.
-
 import os
+import asyncio
+import concurrent.futures
 from agno.agent import Agent
 from agno.models.openai import OpenAIChat
-from agno.tools import tool
+from agno.tools import Toolkit
 from shared.a2a_client import call_agent
 
 
-def _build_agent(user_id: str) -> Agent:
-    """Build a fresh agno Agent per request so user_id is bound into each tool."""
+class AgentTools(Toolkit):
+    def __init__(self, user_id: str):
+        super().__init__(name="agent_tools")
+        self.user_id = user_id
+        self.register(self.call_math_agent)
+        self.register(self.call_text_agent)
+        self.register(self.call_expense_agent)
+        self.register(self.call_time_agent)
 
-    @tool(name="call_math_agent", description="Handle math / arithmetic queries")
-    async def _math(message: str) -> str:
-        return await call_agent("math", message, user_id)
+    def _run_async(self, coro):
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            future = pool.submit(asyncio.run, coro)
+            return future.result()
 
-    @tool(name="call_text_agent", description="Handle text processing / general queries")
-    async def _text(message: str) -> str:
-        return await call_agent("text", message, user_id)
+    def call_math_agent(self, message: str) -> str:
+        """Handle math and arithmetic queries"""
+        return self._run_async(call_agent("math", message, self.user_id))
 
-    @tool(name="call_expense_agent", description="Handle expense tracking queries")
-    async def _expense(message: str) -> str:
-        return await call_agent("expense", message, user_id)
+    def call_text_agent(self, message: str) -> str:
+        """Handle text processing and general queries"""
+        return self._run_async(call_agent("text", message, self.user_id))
 
-    @tool(name="call_time_agent", description="Handle time / date queries")
-    async def _time(message: str) -> str:
-        return await call_agent("time", message, user_id)
+    def call_expense_agent(self, message: str) -> str:
+        """Handle expense tracking queries"""
+        return self._run_async(call_agent("expense", message, self.user_id))
 
-    return Agent(
-        model=OpenAIChat(id="gpt-4o-mini", api_key=os.getenv("OPENAI_API_KEY")),
-        tools=[_math, _text, _expense, _time],
-        instructions=(
-            "You are an orchestration agent. Route user queries to the correct "
-            "sub-agent tools. You may call multiple tools when the query has "
-            "multiple intents. After receiving tool results, compose a final answer."
-        ),
-        markdown=False,
-    )
+    def call_time_agent(self, message: str) -> str:
+        """Handle time and date queries"""
+        return self._run_async(call_agent("time", message, self.user_id))
 
 
 async def run_orchestrator(user_id: str, message: str, history: list) -> dict:
-    """Run the agno agent and return response + list of agents called."""
-    agent = _build_agent(user_id)
+    agent = Agent(
+        model=OpenAIChat(id="gpt-4o-mini", api_key=os.getenv("OPENAI_API_KEY")),
+        tools=[AgentTools(user_id=user_id)],
+        instructions=(
+            "You are an orchestration agent. Always use the provided tools to answer. "
+            "NEVER answer math, time, expense, or text questions from your own knowledge. "
+            "Always call the appropriate tool first, then return its result."
+        ),
+        tool_choice="auto",
+        markdown=False,
+    )
 
-    # Prepend recent history as context
     prompt = message
     if history:
         ctx = "\n".join(f"{h['role'].upper()}: {h['content']}" for h in history[-6:])
@@ -52,15 +59,24 @@ async def run_orchestrator(user_id: str, message: str, history: list) -> dict:
 
     run_response = await agent.arun(prompt)
 
-    # Collect which agents were actually invoked
+    # DEBUG - remove after confirming agents_called works
+    if run_response.messages:
+        for m in run_response.messages:
+            print(f"MSG role={getattr(m, 'role', '?')} tool_calls={getattr(m, 'tool_calls', None)}")
+
+
     agents_called = []
     if run_response.messages:
         for m in run_response.messages:
             tool_calls = getattr(m, "tool_calls", None)
             if tool_calls:
                 for tc in tool_calls:
-                    fn = getattr(tc, "function", tc)
-                    name = getattr(fn, "name", None)
+                    # tc is a dict, not an object
+                    if isinstance(tc, dict):
+                        name = tc.get("function", {}).get("name")
+                    else:
+                        fn = getattr(tc, "function", tc)
+                        name = getattr(fn, "name", None)
                     if name:
                         key = name.replace("call_", "").replace("_agent", "")
                         if key not in agents_called:

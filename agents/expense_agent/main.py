@@ -26,23 +26,29 @@ class ExpenseAgentExecutor(AgentExecutor):
         user_id = (context.message.metadata or {}).get("user_id", 1)
 
         messages = [
-            {"role": "system", "content": "You are an expense tracking assistant. Use tools to add or retrieve expenses."},
+            {
+                "role": "system",
+                "content": (
+                    f"You are an expense tracking assistant. "
+                    f"The current user's ID is {user_id}. "
+                    f"Always use this user_id when calling tools. "
+                    f"NEVER ask the user for their user ID."
+                )
+            },
             {"role": "user", "content": user_text},
         ]
         response = await openai_client.chat.completions.create(
             model="gpt-4o-mini", messages=messages, tools=TOOLS, tool_choice="auto"
         )
         msg = response.choices[0].message
-
         if msg.tool_calls:
             tool_call = msg.tool_calls[0]
             params = json.loads(tool_call.function.arguments)
-            params.setdefault("user_id", user_id)
+            params["user_id"] = int(user_id)  # always override with real user_id
             result = await call_mcp_tool(tool_call.function.name, params)
             answer = str(result)
         else:
             answer = msg.content.strip()
-
         await event_queue.enqueue_event(create_text_message_object(content=answer))
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:

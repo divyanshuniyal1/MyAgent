@@ -1,41 +1,66 @@
 # client/main.py
-import requests
-import webbrowser
+import httpx
+import uuid
 
-AUTH_URL = "http://localhost:8000"
-BASE_URL = "http://localhost:8005"
+ORCHESTRATOR_URL = "http://localhost:8005/chat"
 
 
-def login():
-    print("Opening Microsoft login in your browser...")
-    print("After login, copy the 'access_token' from the response and paste it here.\n")
-    webbrowser.open(f"{AUTH_URL}/auth/login/microsoft")
-    token = input("Paste your access_token here: ").strip()
+def build_request(method: str, params: dict) -> dict:
+    return {
+        "jsonrpc": "2.0",
+        "id": str(uuid.uuid4()),
+        "method": method,
+        "params": params,
+    }
+
+
+def parse_response(data: dict):
+    if "error" in data:
+        err = data["error"]
+        raise Exception(f"JSON-RPC error {err['code']}: {err['message']}")
+    return data.get("result")
+
+
+def get_token() -> str:
+    token = input("Paste your JWT token: ").strip()
     return token
 
 
-def chat(token):
+def main():
+    print("Multi-Agent Chat Client (JSON-RPC 2.0)")
+    print("----------------------------------------")
+    token = get_token()
     headers = {
-        "Authorization": f"Bearer {token}"
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
     }
 
-    print("\nChat started. Type 'exit' to quit.\n")
-
     while True:
-        msg = input("You: ")
-
-        if msg.lower() == "exit":
+        try:
+            user_input = input("You: ").strip()
+        except (KeyboardInterrupt, EOFError):
+            print("\nGoodbye.")
             break
 
-        res = requests.post(
-            f"{BASE_URL}/chat",
-            json={"message": msg},
-            headers=headers
-        )
+        if not user_input:
+            continue
+        if user_input.lower() in ("exit", "quit"):
+            print("Goodbye.")
+            break
 
-        print("Agent:", res.text)
+        payload = build_request("chat", {"message": user_input})
+
+        try:
+            with httpx.Client(timeout=60.0) as client:
+                resp = client.post(ORCHESTRATOR_URL, json=payload, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+                result = parse_response(data)
+                print(f"Agent: {result.get('response')}")
+                print(f"Agents called: {result.get('agents_called', [])}")
+        except Exception as e:
+            print(f"Error: {e}")
 
 
 if __name__ == "__main__":
-    token = login()
-    chat(token)
+    main()

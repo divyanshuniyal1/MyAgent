@@ -4,12 +4,12 @@ from memory.db import SessionLocal
 from memory.models import Message
 
 
-def add_expense(user_id: int, amount: int, note: str = ""):
+def add_expense(user_id: int, amount: float, description: str = ""):
     db = SessionLocal()
     try:
         msg = Message(
             user_id=user_id,
-            content=f"Expense: {amount} | {note}",
+            content=f"Expense: {amount} | {description}",
             role="user",
             agent="expense"
         )
@@ -17,8 +17,7 @@ def add_expense(user_id: int, amount: int, note: str = ""):
         db.commit()
     finally:
         db.close()
-
-    return f"Expense of {amount} added"
+    return f"Expense of {amount} added for user {user_id}"
 
 
 def get_expenses(user_id: int):
